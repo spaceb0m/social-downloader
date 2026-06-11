@@ -5,7 +5,9 @@ services:
     container_name: social-downloader
     restart: unless-stopped
     ports:
-      - "8000:8000"          # host:container — host 8000 is free (n8n uses 5678)
+      # Solo loopback: el nginx del host hace de proxy (vd.spacebom.com con
+      # HTTPS). Así nadie llega directo al 8000 desde Internet; todo va por SSL.
+      - "127.0.0.1:8000:8000"
     environment:
       CHROME_NO_SANDBOX: "1"   # headless Chromium needs --no-sandbox as non-root in a container
     # For Instagram / private content, provide a Netscape cookies.txt:
