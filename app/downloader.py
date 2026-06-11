@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 
 import yt_dlp
 
+from app import instagram_fallback
+
 ALLOWED_DOMAINS = {
     "x.com",
     "twitter.com",
@@ -15,6 +17,19 @@ ALLOWED_DOMAINS = {
 }
 
 COOKIES_FILE = os.environ.get("COOKIES_FILE")
+# Navegador del que extraer cookies, p. ej. "firefox", "safari" o
+# "chrome:Profile 3". yt-dlp espera la tupla (navegador, perfil, keyring,
+# contenedor); aquí solo exponemos navegador y perfil.
+COOKIES_FROM_BROWSER = os.environ.get("COOKIES_FROM_BROWSER")
+
+
+def _cookies_from_browser_tuple(value: str | None) -> tuple | None:
+    """Convierte "firefox" o "chrome:Perfil" en la tupla que espera yt-dlp."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    browser, _, profile = value.partition(":")
+    return (browser.lower().strip(), profile.strip() or None, None, None)
 
 
 class DownloadError(Exception):
@@ -49,6 +64,11 @@ def validate_url(url: str) -> str:
     return url
 
 
+def _is_instagram(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return host.endswith("instagram.com") or host.endswith("instagr.am")
+
+
 def _base_ydl_opts() -> dict:
     opts = {
         "quiet": True,
@@ -58,6 +78,9 @@ def _base_ydl_opts() -> dict:
     }
     if COOKIES_FILE:
         opts["cookiefile"] = COOKIES_FILE
+    browser = _cookies_from_browser_tuple(COOKIES_FROM_BROWSER)
+    if browser:
+        opts["cookiesfrombrowser"] = browser
     return opts
 
 
@@ -65,8 +88,9 @@ def _map_yt_dlp_error(exc: Exception) -> DownloadError:
     text = str(exc).lower()
     if "login" in text or "private" in text or "rate-limit" in text or "cookies" in text:
         return DownloadError(
-            "Este contenido es privado o requiere iniciar sesión. "
-            "Configura la variable COOKIES_FILE con tus cookies de sesión.",
+            "Instagram exige una sesión para este contenido (incluso público). "
+            "Arranca el servidor con COOKIES_FILE=/ruta/cookies.txt (cookies "
+            "exportadas estando logueado) o con COOKIES_FROM_BROWSER=firefox.",
             status_code=403,
         )
     if "no video" in text or "unsupported url" in text:
@@ -116,7 +140,16 @@ def get_video_info(url: str) -> dict:
         with yt_dlp.YoutubeDL(_base_ydl_opts()) as ydl:
             info = ydl.extract_info(url, download=False)
     except yt_dlp.utils.DownloadError as exc:
-        raise _map_yt_dlp_error(exc)
+        error = _map_yt_dlp_error(exc)
+        # Instagram bloquea peticiones sin sesión incluso para contenido
+        # público; un navegador headless sí puede extraerlo.
+        if error.status_code == 403 and _is_instagram(url):
+            fallback_info = instagram_fallback.extract_info(url)
+            if fallback_info:
+                for f in fallback_info["formats"]:
+                    f.pop("direct_url", None)
+                return fallback_info
+        raise error
 
     # Publicaciones con varios vídeos: usamos el primero
     if info.get("_type") == "playlist":
@@ -146,6 +179,14 @@ def download_video(url: str, format_id: str | None = None) -> tuple[str, str]:
     responsable de eliminar el directorio temporal tras servir el archivo.
     """
     url = validate_url(url)
+
+    # Formatos "ig-N" provienen del fallback de navegador, no de yt-dlp
+    if format_id and format_id.startswith("ig-") and _is_instagram(url):
+        result = instagram_fallback.download(url, format_id)
+        if not result:
+            raise DownloadError("La descarga ha fallado. Inténtalo de nuevo.", status_code=500)
+        return result
+
     tmpdir = tempfile.mkdtemp(prefix="socialdl-")
     opts = _base_ydl_opts()
     opts.update(
@@ -160,7 +201,12 @@ def download_video(url: str, format_id: str | None = None) -> tuple[str, str]:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
     except yt_dlp.utils.DownloadError as exc:
-        raise _map_yt_dlp_error(exc)
+        error = _map_yt_dlp_error(exc)
+        if error.status_code == 403 and _is_instagram(url):
+            result = instagram_fallback.download(url, format_id)
+            if result:
+                return result
+        raise error
 
     if info.get("_type") == "playlist":
         entries = info.get("entries") or []
