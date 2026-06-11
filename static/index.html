@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Social Downloader — Descarga vídeos de X e Instagram</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>⬇️ Social Downloader</h1>
+      <p class="subtitle">
+        Descarga vídeos de <strong>X (Twitter)</strong> e <strong>Instagram</strong>
+        pegando la URL de la publicación.
+      </p>
+    </header>
+
+    <form id="url-form" autocomplete="off">
+      <input
+        type="url"
+        id="url-input"
+        placeholder="https://x.com/usuario/status/… o https://www.instagram.com/p/…"
+        required
+      />
+      <button type="submit" id="fetch-btn">
+        <span class="btn-label">Obtener vídeo</span>
+        <span class="spinner" hidden></span>
+      </button>
+    </form>
+
+    <div id="error" class="error" hidden></div>
+
+    <section id="result" class="result" hidden>
+      <div class="preview">
+        <img id="thumbnail" alt="Miniatura del vídeo" hidden />
+        <div class="meta">
+          <h2 id="video-title"></h2>
+          <p id="video-details"></p>
+        </div>
+      </div>
+      <h3>Elige la calidad para descargar:</h3>
+      <div id="formats" class="formats"></div>
+      <p id="download-note" class="note" hidden>
+        Preparando la descarga… puede tardar unos segundos.
+      </p>
+    </section>
+
+    <footer>
+      <p>
+        Descarga únicamente contenido del que tengas derechos o permiso.
+        Funciona con publicaciones públicas; las privadas pueden requerir cookies de sesión.
+      </p>
+    </footer>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
