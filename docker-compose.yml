@@ -6,8 +6,9 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"          # host:container — host 8000 is free (n8n uses 5678)
+    environment:
+      CHROME_NO_SANDBOX: "1"   # headless Chromium needs --no-sandbox as non-root in a container
     # For Instagram / private content, provide a Netscape cookies.txt:
-    # environment:
     #   COOKIES_FILE: /cookies/cookies.txt
     # volumes:
     #   - ./cookies.txt:/cookies/cookies.txt:ro

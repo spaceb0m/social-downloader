@@ -1,8 +1,8 @@
 FROM python:3.12-slim
 
-# ffmpeg lets yt-dlp merge separate audio/video tracks (recommended); curl is for the healthcheck.
+# ffmpeg: yt-dlp merges audio/video tracks. chromium: headless Instagram fallback. curl: healthcheck.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg curl \
+    && apt-get install -y --no-install-recommends ffmpeg curl chromium \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
