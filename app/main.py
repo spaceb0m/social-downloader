@@ -26,6 +26,16 @@ async def download_error_handler(_request, exc: DownloadError):
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
 
 
+@app.middleware("http")
+async def no_cache_static(request, call_next):
+    """Los estáticos se revalidan siempre (ETag → 304): sin esto el navegador
+    cachea index.html heurísticamente y los fixes de JS tardan días en llegar."""
+    response = await call_next(request)
+    if not request.url.path.startswith("/api"):
+        response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
+
 @app.post("/api/info")
 def api_info(body: InfoRequest):
     return get_video_info(body.url)

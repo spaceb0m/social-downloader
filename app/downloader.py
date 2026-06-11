@@ -95,7 +95,15 @@ def _map_yt_dlp_error(exc: Exception) -> DownloadError:
         )
     if "no video" in text or "unsupported url" in text:
         return DownloadError("Esta publicación no contiene ningún vídeo.", status_code=422)
-    if "404" in text or "not found" in text or "unavailable" in text:
+    # \b evita casar "403" dentro de IDs de tweet (snowflakes de 19 dígitos)
+    if re.search(r"\b403\b", text) or "forbidden" in text:
+        return DownloadError(
+            "La plataforma ha bloqueado la descarga desde la IP de este servidor "
+            "(HTTP 403). Descarga desde la web (el navegador baja el vídeo "
+            "directamente) o ejecuta la app en local.",
+            status_code=403,
+        )
+    if re.search(r"\b404\b", text) or "not found" in text or "unavailable" in text:
         return DownloadError(
             "No se ha encontrado la publicación. Comprueba que la URL es correcta.",
             status_code=404,
@@ -106,12 +114,16 @@ def _map_yt_dlp_error(exc: Exception) -> DownloadError:
     )
 
 
-def _progressive_formats(info: dict) -> list[dict]:
+def _progressive_formats(info: dict, include_direct_url: bool = False) -> list[dict]:
     """Filtra formatos con vídeo y audio combinados (no requieren ffmpeg).
 
     Los MP4 progresivos de X/Twitter no declaran códecs (None); solo se
     descarta el valor explícito 'none' (pista ausente) y los protocolos de
     streaming (HLS/DASH), que servirían pistas separadas sin ffmpeg.
+
+    Con include_direct_url se expone la URL del CDN para que el navegador
+    del usuario descargue el archivo él mismo: la CDN de X devuelve 403 a
+    las IPs de datacenter, así que el servidor no puede hacer de proxy.
     """
     formats = []
     for f in info.get("formats") or []:
@@ -121,15 +133,16 @@ def _progressive_formats(info: dict) -> list[dict]:
             continue
         height = f.get("height")
         size = f.get("filesize") or f.get("filesize_approx")
-        formats.append(
-            {
-                "format_id": f["format_id"],
-                "ext": f.get("ext") or "mp4",
-                "resolution": f"{height}p" if height else (f.get("format_note") or "desconocida"),
-                "height": height or 0,
-                "filesize": size,
-            }
-        )
+        entry = {
+            "format_id": f["format_id"],
+            "ext": f.get("ext") or "mp4",
+            "resolution": f"{height}p" if height else (f.get("format_note") or "desconocida"),
+            "height": height or 0,
+            "filesize": size,
+        }
+        if include_direct_url and f.get("url"):
+            entry["direct_url"] = f["url"]
+        formats.append(entry)
     formats.sort(key=lambda f: f["height"], reverse=True)
     return formats
 
@@ -158,7 +171,7 @@ def get_video_info(url: str) -> dict:
             raise DownloadError("Esta publicación no contiene ningún vídeo.", status_code=422)
         info = entries[0]
 
-    formats = _progressive_formats(info)
+    formats = _progressive_formats(info, include_direct_url=not _is_instagram(url))
     if not formats and not info.get("url"):
         raise DownloadError("Esta publicación no contiene ningún vídeo.", status_code=422)
 

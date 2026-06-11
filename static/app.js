@@ -17,10 +17,14 @@ function setLoading(loading) {
   btnLabel.textContent = loading ? "Buscando…" : "Obtener vídeo";
 }
 
-function showError(message) {
+function showError(message, keepResult = false) {
   errorBox.textContent = message;
   errorBox.hidden = false;
-  result.hidden = true;
+  if (!keepResult) result.hidden = true;
+}
+
+function isInstagramUrl(url) {
+  return url.includes("instagram.com") || url.includes("instagr.am");
 }
 
 function formatDuration(seconds) {
@@ -63,11 +67,98 @@ function renderResult(info, url) {
       .filter(Boolean)
       .join(" · ");
     btn.innerHTML = `<span>${label}</span><span class="dl-icon">⬇ Descargar</span>`;
-    btn.addEventListener("click", () => download(url, f.format_id, btn));
+    btn.addEventListener("click", () => {
+      if (f.direct_url) {
+        downloadDirect(f.direct_url, safeFilename(info.title, f.resolution, f.ext));
+      } else if (!isInstagramUrl(url)) {
+        // Sin direct_url el servidor tendría que hacer de proxy, y la CDN de X
+        // se lo bloquea (403): mejor un error claro que una página JSON
+        showError(
+          "Este vídeo de X solo está disponible en streaming y no se puede " +
+            "descargar directamente desde el navegador.",
+          true
+        );
+      } else {
+        download(url, f.format_id, btn);
+      }
+    });
     formatsBox.appendChild(btn);
   }
 
   result.hidden = false;
+}
+
+function safeFilename(title, resolution, ext) {
+  const cleaned = (title || "video")
+    .replace(/[\\/:*?"<>|]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Spread por code-points: slice() de string partiría emojis por la mitad
+  const base = [...cleaned].slice(0, 80).join("").trim() || "video";
+  const res = resolution ? ` [${resolution}]` : "";
+  return `${base}${res}.${ext || "mp4"}`;
+}
+
+const DOWNLOAD_NOTE_DEFAULT = downloadNote.textContent;
+
+function setFormatsDisabled(disabled) {
+  for (const b of formatsBox.querySelectorAll("button")) b.disabled = disabled;
+}
+
+// La CDN de X devuelve 403 a las IPs de datacenter, así que el servidor no
+// puede hacer de proxy: el navegador descarga el archivo directamente
+// (la CDN envía access-control-allow-origin: *, que permite el fetch).
+async function downloadDirect(directUrl, filename) {
+  setFormatsDisabled(true);
+  downloadNote.hidden = false;
+  errorBox.hidden = true;
+
+  try {
+    // Sin no-referrer la CDN de X devuelve 403 (protección anti-hotlink)
+    const res = await fetch(directUrl, { referrerPolicy: "no-referrer" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    let blob;
+    if (res.body && res.body.getReader) {
+      const total = Number(res.headers.get("Content-Length")) || 0;
+      const reader = res.body.getReader();
+      const chunks = [];
+      let received = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        const mb = (received / 1048576).toFixed(1);
+        downloadNote.textContent = total
+          ? `Descargando… ${mb} MB de ${(total / 1048576).toFixed(1)} MB`
+          : `Descargando… ${mb} MB`;
+      }
+      blob = new Blob(chunks, { type: "video/mp4" });
+    } else {
+      blob = await res.blob();
+    }
+
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Safari puede abortar el guardado si se revoca en la misma tarea
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 30000);
+  } catch {
+    showError(
+      "No se ha podido descargar el vídeo directamente desde X. " +
+        "Vuelve a obtener el vídeo e inténtalo de nuevo.",
+      true
+    );
+  } finally {
+    setFormatsDisabled(false);
+    downloadNote.hidden = true;
+    downloadNote.textContent = DOWNLOAD_NOTE_DEFAULT;
+  }
 }
 
 function download(url, formatId, btn) {
