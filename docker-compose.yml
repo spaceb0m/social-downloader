@@ -1,0 +1,13 @@
+services:
+  social-downloader:
+    build: .
+    image: social-downloader:latest
+    container_name: social-downloader
+    restart: unless-stopped
+    ports:
+      - "8000:8000"          # host:container — host 8000 is free (n8n uses 5678)
+    # For Instagram / private content, provide a Netscape cookies.txt:
+    # environment:
+    #   COOKIES_FILE: /cookies/cookies.txt
+    # volumes:
+    #   - ./cookies.txt:/cookies/cookies.txt:ro
